@@ -30,7 +30,7 @@ import Cardano.Ledger.Block (Block)
 import qualified Cardano.Ledger.Chain as STS
 import Cardano.Ledger.Core
 import qualified Cardano.Ledger.Crypto as CC (Crypto)
-import Cardano.Ledger.Keys (DSignable, Hash)
+import Cardano.Ledger.Keys (DSignable, Hash, KeyHash,  KeyRole( Staking, StakePool ))
 import Cardano.Ledger.Shelley (ShelleyEra)
 import Cardano.Ledger.Shelley.LedgerState (LedgerState (..), NewEpochState)
 import qualified Cardano.Ledger.Shelley.LedgerState as LedgerState
@@ -44,6 +44,17 @@ import Control.Monad.Trans.Reader (runReader)
 import Control.State.Transition.Extended
 import GHC.Generics (Generic)
 import NoThunks.Class (NoThunks (..))
+
+import Cardano.Ledger.Shelley.Rules(
+   SnapEvent( StakeDistEvent ),
+  ShelleyLedgersEvent (LedgerEvent),
+ )
+
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import Cardano.Ledger.Credential (Credential)
+import Cardano.Ledger.BaseTypes (ShelleyBase)
+import Cardano.Ledger.Coin (Coin (..))
 
 {-------------------------------------------------------------------------------
   Block validation API
@@ -144,8 +155,21 @@ applyTick =
     ApplySTSOpts
       { asoAssertions = globalAssertionPolicy
       , asoValidation = ValidateAll
-      , asoEvents = EPDiscard
+      , asoEvents = EPReturn
       }
+
+writeStakeDistToFile :: Map (Credential 'Staking (NewEpochState era)) (Coin, KeyHash 'StakePool (NewEpochState era))  -> IO ()
+writeStakeDistToFile stakeMap = do
+  let filename = "stakeDist.txt"
+  writeFile filename (show stakeMap)
+
+handleEvents :: [LedgerEvent] -> IO ()
+handleEvents events = do
+  let stakeDistEvents = filter isStakeDistEvent events
+  forM_ stakeDistEvents $ \event -> do
+    case event of
+      StakeDistEvent stakeMap -> writeStakeDistToFile stakeMap
+      _ -> return ()
 
 applyBlock ::
   ( ApplyBlock era
@@ -160,7 +184,7 @@ applyBlock =
     ApplySTSOpts
       { asoAssertions = globalAssertionPolicy
       , asoValidation = ValidateAll
-      , asoEvents = EPDiscard
+      , asoEvents = EPReturn
       }
 
 type ShelleyEraCrypto c =
